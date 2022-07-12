@@ -7,6 +7,7 @@ using System.Text;
 using System.IO;
 using System.Runtime.InteropServices;
 using uint8_t = System.Byte;
+using uint16_t = System.UInt16;
 
 namespace MissionPlanner.Utilities
 {
@@ -21,7 +22,8 @@ namespace MissionPlanner.Utilities
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
         public struct log_Format
         {
-            public uint8_t type;
+            public uint16_t type;
+            //public uint8_t type;
             public uint8_t length;
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)] public byte[] name;
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)] public byte[] format;
@@ -30,7 +32,8 @@ namespace MissionPlanner.Utilities
 
         public struct log_format_cache
         {
-            public uint8_t type;
+            public uint16_t type;
+            //public uint8_t type;
             public uint8_t length;
             public string name;
             public string format;
@@ -41,39 +44,24 @@ namespace MissionPlanner.Utilities
         {
             public UnionArray(byte[] bytes)
             {
-                this._shorts = null;
-                this._bytes = bytes;
+                this.Shorts = null;
+                this.Bytes = bytes;
             }
 
             [FieldOffset(0)]
-            byte[] _bytes;
+            public byte[] Bytes;
 
             [FieldOffset(0)]
-            short[] _shorts;
+            public short[] Shorts;
 
-            public byte[] Bytes
+            public int ShortsLength
             {
-                get
-                {
-                    return _bytes;
-                }
-                set
-                {
-                    _bytes = value;
-                }
-            }
-
-            public ReadOnlySpan<short> Shorts
-            {
-                get
-                {
-                    return new ReadOnlySpan<short>(_shorts, 0, _bytes.Length / 2);
-                }
+                get { return Bytes.Length / 2; }
             }
 
             public override string ToString()
             {
-                return "[" + String.Join(" ", _shorts.Take((_bytes.Length / 2)).ToList()) + "]";
+                return "[" + String.Join(" ", Shorts.Take((Bytes.Length / 2)).ToList()) + "]";
             }
         }
 
@@ -128,6 +116,7 @@ namespace MissionPlanner.Utilities
                 while (br.Position < length)
                 {
                     byte data = (byte) br.ReadByte();
+                    byte data2 = 0x00;
 
                     switch (log_step)
                     {
@@ -153,7 +142,14 @@ namespace MissionPlanner.Utilities
                             log_step = 0;
                             try
                             {
-                                string line = String.Join(", ", logEntryObjects(data, br).Select((a) =>
+                                if (data != 128)
+                                {
+                                    data2 = (byte)br.ReadByte();
+                                }
+
+                                uint16_t msg = (ushort)((data2 << 8) + data);
+
+                                string line = String.Join(", ", logEntryObjects(data, msg, br).Select((a) =>
                                               {
                                                   if (a.IsNumber())
                                                       return (((IConvertible)a).ToString(CultureInfo.InvariantCulture));
@@ -201,13 +197,14 @@ namespace MissionPlanner.Utilities
         }
 
 
-        internal (byte MsgType, long Offset) ReadMessageTypeOffset(Stream br, long length)
+        internal (uint16_t MsgType, long Offset) ReadMessageTypeOffset(Stream br, long length)
         {
             int log_step = 0;
 
             while (br.Position < length)
             {
                 byte data = (byte) br.ReadByte();
+                byte data2 = 0x00;
 
                 switch (log_step)
                 {
@@ -236,10 +233,18 @@ namespace MissionPlanner.Utilities
                         try
                         {
                             long pos = br.Position - 3;
-                            // read fmt or seek length of packet
-                            logEntryFMT(data, br);
 
-                            return (data, pos);
+                            if (data != 128)
+                            {
+                                data2 = (byte) br.ReadByte();
+                            }
+
+                            uint16_t msg = (ushort)((data2 << 8) + data);
+
+                            // read fmt or seek length of packet
+                            logEntryFMT(data, msg, br);
+
+                            return (msg, pos);
                         }
                         catch
                         {
@@ -254,7 +259,7 @@ namespace MissionPlanner.Utilities
 
         }
 
-        void logEntryFMT(byte packettype, Stream br)
+        void logEntryFMT(byte packettype, uint16_t msg, Stream br)
         {
             switch (packettype)
             {
@@ -306,9 +311,9 @@ namespace MissionPlanner.Utilities
 
                     int size = 0;
 
-                    if (packettypecache[packettype].length != 0)
+                    if (packettypecache[msg].length != 0)
                     {
-                        var fmt = packettypecache[packettype];
+                        var fmt = packettypecache[msg];
                         //name = fmt.name;
                         //format = fmt.format;
                         size = fmt.length;
@@ -335,6 +340,7 @@ namespace MissionPlanner.Utilities
                 while (br.Position < length)
                 {
                     byte data = (byte) br.ReadByte();
+                    byte data2 = 0x00;
 
                     switch (log_step)
                     {
@@ -360,7 +366,14 @@ namespace MissionPlanner.Utilities
                             log_step = 0;
                             try
                             {
-                                var line = logEntryObjects(data, br);
+                                if (data != 128)
+                                {
+                                    data2 = (byte)br.ReadByte();
+                                }
+
+                                uint16_t msg = (ushort)((data2 << 8) + data);
+
+                                var line = logEntryObjects(data, msg, br);
 
                                 return line;
                             }
@@ -376,7 +389,7 @@ namespace MissionPlanner.Utilities
             }
         }
         
-        object[] logEntryObjects(byte packettype, Stream br)
+        object[] logEntryObjects(byte packettype, uint16_t msg, Stream br)
         {
             lock (locker)
             {
@@ -421,9 +434,9 @@ namespace MissionPlanner.Utilities
                         string name = "";
                         int size = 0;
 
-                        if (packettypecache[packettype].length != 0)
+                        if (packettypecache[msg].length != 0)
                         {
-                            var fmt = packettypecache[packettype];
+                            var fmt = packettypecache[msg];
                             name = fmt.name;
                             format = fmt.format;
                             size = fmt.length;
@@ -465,22 +478,21 @@ namespace MissionPlanner.Utilities
         
         private object[] ProcessMessageObjects(byte[] message, string name, string format)
         {
+            char[] form = format.ToCharArray();
+
             int offset = 0;
 
-            object[] answer = new object[format.Length + 1];
+            List<object> answer = new List<object>();
 
-            answer[0] = name;
+            answer.Add(name);
 
-            int a = 1;
-
-            foreach (char ch in format)
+            foreach (char ch in form)
             {
                 var temp = GetObjectFromMessage(ch, message, offset);
-                answer[a] = temp.item;
+                answer.Add(temp.item);
                 offset += temp.size;
-                a++;
             }
-            return answer;
+            return answer.ToArray();
         }
 
         public (object item, int size) GetObjectFromMessage(char type, byte[] message, int offset)
@@ -548,7 +560,7 @@ namespace MissionPlanner.Utilities
                     return (Encoding.ASCII.GetString(message, offset, 64).Trim('\0'), 64);
 
                 case 'a':
-                    return (new UnionArray(new ReadOnlySpan<byte>(message, offset, 64).ToArray()), 2 * 32);
+                    return (new UnionArray(message.Skip(offset).Take(64).ToArray()), 2 * 32);
 
                 default:
                     return (null, 0);
@@ -556,7 +568,7 @@ namespace MissionPlanner.Utilities
         }
 
 
-        private log_format_cache[] packettypecache = new log_format_cache[256];
+        private log_format_cache[] packettypecache = new log_format_cache[1024];
 
         /*
          https://github.com/ArduPilot/ardupilot/blob/master/libraries/AP_Logger/LogStructure.h

@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using uint16_t = System.UInt16;
 
 namespace MissionPlanner.Utilities
 {
@@ -26,11 +27,13 @@ namespace MissionPlanner.Utilities
         /// <summary>
         /// Type and offsets
         /// </summary>
-        List<uint>[] messageindex = new List<uint>[256];
+        //List<uint>[] messageindex = new List<uint>[256];
+        List<uint>[] messageindex = new List<uint>[1024];
         /// <summary>
         /// Type and line numbers
         /// </summary>
-        List<uint>[] messageindexline = new List<uint>[256];
+        //List<uint>[] messageindexline = new List<uint>[256];
+        List<uint>[] messageindexline = new List<uint>[1024];
 
         bool binary = false;
 
@@ -101,7 +104,8 @@ namespace MissionPlanner.Utilities
                     if (ans.MsgType == 0 && ans.Offset == 0)
                         continue;
 
-                    byte type = ans.Item1;
+                    //byte type = ans.Item1;
+                    uint16_t type = ans.Item1;
                     messageindex[type].Add((uint)(ans.Item2));
                     messageindexline[type].Add((uint) lineCount);
 
@@ -159,7 +163,8 @@ namespace MissionPlanner.Utilities
 
                     if (dflog.logformat.ContainsKey(msgtype))
                     {
-                        var type = (byte)dflog.logformat[msgtype].Id;
+                        var type = (uint16_t)dflog.logformat[msgtype].Id;
+                        //var type = (byte)dflog.logformat[msgtype].Id;
 
                         messageindex[type].Add(linestartoffset[b]);
                         messageindexline[type].Add((uint)b);
@@ -465,35 +470,18 @@ namespace MissionPlanner.Utilities
 
         public IEnumerable<DFLog.DFItem> GetEnumeratorType(string[] types)
         {
-            Dictionary<string, List<string>> instances = new Dictionary<string, List<string>>();
+            Dictionary<string, string> instances = new Dictionary<string, string>();
 
             types.ForEach(x =>
-            {                
-                // match ACC[0] GPS[0] or ACC or GPS
+            {
                 var m = Regex.Match(x, @"(\w+)(\[([0-9]+)\])?", RegexOptions.None);
                 if (m.Success)
                 {
-                    if (!instances.ContainsKey(m.Groups[1].ToString()))
-                        instances[m.Groups[1].ToString()] = new List<string>();
-
-                    instances[m.Groups[1].ToString()].Add(m.Groups[2].Success ? m.Groups[2].ToString() : "");
+                    instances[m.Groups[1].ToString()] = m.Groups[2].Success ? m.Groups[2].ToString() : "";
                 }
                 else
                 {
-                    if (!instances.ContainsKey(x))
-                        instances[x] = new List<string>();
-
-                    instances[x].Add("");
-                }
-
-                // match ACC1  GYR1
-                m = Regex.Match(x, @"(\w+)([0-9]+)$", RegexOptions.None);
-                if (m.Success)
-                {
-                    if (!instances.ContainsKey(m.Groups[1].ToString()))
-                        instances[m.Groups[1].ToString()] = new List<string>();
-
-                    instances[m.Groups[1].ToString()].Add(m.Groups[2].Success ? (int.Parse(m.Groups[2].ToString()) - 1).ToString() : "");
+                    instances[x] = "";
                 }
             });
 
@@ -503,7 +491,8 @@ namespace MissionPlanner.Utilities
             {
                 if (dflog.logformat.ContainsKey(type))
                 {
-                    var typeid = (byte) dflog.logformat[type].Id;
+                    var typeid = (uint16_t) dflog.logformat[type].Id;
+                    //var typeid = (byte)dflog.logformat[type].Id;
 
                     foreach (var item in messageindexline[typeid])
                     {
@@ -515,20 +504,13 @@ namespace MissionPlanner.Utilities
             if(types.Length > 1)
                 slist.Sort();
 
-            int progress = DateTime.Now.Second;
             // work through list of lines
             foreach (var l in slist)
             {
-                if (DateTime.Now.Second != progress)
-                {
-                    Console.WriteLine(l);
-                    progress = DateTime.Now.Second;
-                }
                 var ans = this[(long) l];
                 var inst = instances[ans.msgtype];
                 // instance was requested, and its not a match
-                //if (inst != "" && ans.instance != inst)
-                if (!inst.Contains("") && !inst.Contains(ans.instance))
+                if (inst != "" && ans.instance != inst)
                     continue;
                 yield return ans;
             }
